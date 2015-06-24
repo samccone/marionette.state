@@ -23,17 +23,13 @@ const State = Mn.Object.extend({
   // Initial state attributes hash after 'initialState' option and defaults are applied
   _initialState: undefined,
 
-  // options {
-  //   bindLifecycle: {Mn object} Optionally bind lifecycle to object.
-  //   initialState: {attrs} Optional initial state (defaultState will still be applied)
-  constructor(options={}) {
-    if (options.bindLifecycle) { this.bindLifecycle(options.bindLifecycle); }
-
+  // initialState {object} Initial state attributes
+  constructor(initialState) {
     // State model class is either passed in, on the class, or a standard Backbone model
-    this.modelClass = options.modelClass || this.modelClass || Backbone.Model;
+    this.modelClass = this.modelClass || Backbone.Model;
 
     // Initialize state
-    this.initState(options.initialState);
+    this.initState(initialState);
 
     State.__super__.constructor.apply(this, arguments);
   },
@@ -68,14 +64,12 @@ const State = Mn.Object.extend({
 
   // Proxy to model set().
   set() {
-    if (!this._model) { throw new Mn.Error('Initialize state first.'); }
     this._model.set.apply(this._model, arguments);
     return this;
   },
 
   // Proxy to model get().
   get() {
-    if (!this._model) { throw new Mn.Error('Initialize state first.'); }
     return this._model.get.apply(this._model, arguments);
   },
 
@@ -106,38 +100,74 @@ const State = Mn.Object.extend({
       .value();
   },
 
-  syncComponent(component, stateEvents, syncEvent) {
-    if (_.isString(stateEvents)) {
-      syncEvent = stateEvents;
-    } else {
-      stateEvents = stateEvents || component.stateEvents;
-    }
-
+  // Bind this State's `componentEvents` to `component` and bind the component's `stateEvents`
+  // to this State.
+  // options {
+  //   sync: {true|String event} If true, will sync component immediately by calling all
+  //     `stateEvents` change handlers immediatel.  If a string, will call all `stateEvents`
+  //     change handlers whenever the component fires the named event.
+  //   lifetime: {boolean} If true, will destroy itself on `component` destroy event.
+  // }
+  bindComponent(component, options={}) {
+    var stateEvents = component.stateEvents;
+    var sync = options.sync;
+    var lifetime = options.lifetime;
     if (this.componentEvents) {
-      this.bindEntityEvents(component, this.componentEvents);
+      this.bindComponentEvents(component, this.componentEvents);
     }
     if (stateEvents) {
-      State.syncEntityEvents(component, this, stateEvents, syncEvent);
+      if (sync === true) {
+        State.syncEntityEvents(component, this, stateEvents);
+      } else if (_.isString(sync)) {
+        State.syncEntityEvents(component, this, stateEvents, sync);
+      } else {
+        Mn.bindEntityEvents(component, this, stateEvents);
+      }
+    }
+    if (lifetime) {
+      this.bindLifetime(component);
     }
     return this;
   },
 
-  stopSyncingComponent(component, stateEvents, syncEvent) {
+  // Unbinds `component` from this State's `componentEvents` and ceases component from listening
+  // to this State's state events.
+  unbindComponent(component) {
+    var stateEvents = component.stateEvents;
     if (this.componentEvents) {
       this.unbindEntityEvents(component, this.componentEvents);
     }
-    State.stopSyncingEntityEvents(component, this, stateEvents, syncEvent);
+    if (stateEvents) {
+      State.stopSyncingEntityEvents(component, this);
+    }
     return this;
   },
 
-  bindLifecycle(component) {
-    if (!this._boundDestroy) { this.boundDestroy = this.destroy.bind(this); }
+  // When `component` fires "destroy" event, this State will also destroy.
+  bindLifetime(component) {
+    if (!this._boundDestroy) {
+      this._boundDestroy = this.destroy.bind(this);
+    }
     this.listenTo(component, 'destroy', this._boundDestroy);
     return this;
   },
 
-  unbindLifecycle(component) {
+  // Stop listening to `component` "destroy" event.
+  unbindLifetime(component) {
     this.stopListening(component, 'destroy', this._boundDestroy);
+    return this;
+  },
+
+  // Attach componentEvents to component
+  bindComponentEvents(component) {
+    this.bindEntityEvents(component, this.componentEvents);
+    return this;
+  },
+
+  // Detach componentEvents from component
+  unbindComponentEvents(component) {
+    this.unbindEntityEvents(component, this.componentEvents);
+    return this;
   },
 
   // Proxy to StateFunctions#syncEntityEvents.
@@ -146,13 +176,20 @@ const State = Mn.Object.extend({
     return this;
   },
 
+  // Proxy to StateFunctions#stopSyncingEntityEvents.
+  stopSyncingEntityEvents(entity, entityEvents, event) {
+    State.stopSyncingEntityEvents(this, entity, entityEvents, event);
+  },
+
+  // Convert model events to state events
   _proxyModelEvents: function (other) {
     this.listenTo(other, 'all', function () {
       if (arguments.length > 1 && arguments[1] === this._model) {
+        // Replace model argument with State
         arguments[1] = this;
       }
       this.trigger.apply(this, arguments);
-    }.bind(this));
+    });
   }
 });
 
