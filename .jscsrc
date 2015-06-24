@@ -9,5 +9,9 @@
   "disallowSpacesInAnonymousFunctionExpression": null,
   "requireSpacesInAnonymousFunctionExpression": {
     "beforeOpeningRoundBrace": true
-  }
+  },
+
+  // More readable inline objects
+  "disallowSpacesInsideObjectBrackets": null,
+  "requireSpacesInsideObjectBrackets": "allButNested"
 }
