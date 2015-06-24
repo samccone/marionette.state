@@ -1,7 +1,7 @@
 marionette.state
 ================
 
-One-way data flow architecture for stateful components within a Backbone.Marionette app.
+One-way state architecture for a Backbone.Marionette app.
 
 ## Installation
 
@@ -13,8 +13,8 @@ npm install marionette.state
 
 ## Documentation
 
-- [Introduction](#introduction)
-- [Architectural Pattern](#architectural-pattern)
+- [Reasoning](#reasoning)
+- [View State](#view-state)
 - [Examples](#examples)
   - [Radio Button](#radio-button)
   - [Radio Button Group Synced with External Model](#radio-button-group-synced-with-application-model)
@@ -27,7 +27,7 @@ npm install marionette.state
   - [View Side Effects](#view-side-effects)
 - [Marionette.State Functions API](#marionette-state-functions-api)
 
-## Introduction
+## Reasoning
 
 A Marionette View is a DOM representation of a Backbone model. When the model updates, so does the view.  Here is a quick example:
 
@@ -40,14 +40,17 @@ var model = new Backbone.Model({ url: '/rest-endpoint' });
 
 // View will re-render when the model changes
 var View = Marionette.ItemView({
-  modelEvents: { 'change': 'render' }
+  modelEvents: {
+    'change': 'render'
+  }
 });
 
 // Create the view
 var view = new View({ model: model });
 
-// Fetch the latest data and, once ready, show the view
+// Fetch the latest data
 model.fetch().done(function () {
+  // Show the view with initial data
   region.show(view);
 });
 
@@ -55,34 +58,94 @@ model.fetch().done(function () {
 model.fetch();
 ```
 
-This is great for simple views that are only interested in representing a single model.  What should one do when a view depends on other states, such as user interaction or application state?  Is it good idea to store view-specific state attributes directly on its model?  Is using plain Javascript properties on the View object okay?
+This is great for views that are only interested in representing simple content.  Consider more complex, yet quite common, scenarios:
 
-`Marionette.State` allows a view to _seamlessly depend on any source of state_ while keeping view state logic self-contained and eliminating the temptation to pollute a server-syncronized data model with view-specific state.  Best of all, `Marionette.State` does this by providing declarative and expressive tools rather than over-engineering for every use case, much like the Marionette library itself.
+* *A view renders core content but also reacts to user interaction.*  E.g., a view renders a list of people, but the end user is able to select individal items with a "highlight" effect before saving changes.
+* *A view renders core content but also depends on external state.*  E.g., a view renders a person's profile, but if the profile belongs to the logged in user then enable "edit" features.
+* *Multiple views share a core content model but each have unique view states.*  E.g., multiple views render a user profile object, but in completely different ways and with completely unique view states: an avatar beside a comment, a short bio available when hovering over an avatar, a full user profile display.
 
-## Architectural Pattern
+Common solutions:
 
-Before launching into the details, it will be helpful to examine a sturdy architectural pattern that has been recently popularlized by Facebook's Flux architecture: one-way data binding.  Given the sheer decision-making power handed to a Backbone developer, a pattern such as this can go a long way toward simplifying and standardizing code organization and data flow.
+* Store view states in the core content model, but write code to avoid sending those attributes to the server.
+* Store view states in a model shared between views, hoping that changing one view's state won't cause needless re-renders in the other views.
+* Store view states directly on the view object and surround each "set" with if statements to trigger view updates.
 
-Consider the following common scenario on the component (view) level:
+Each of these solutions works up until a point, but then side effects amount as complexity rises.  Symptoms of rising complexity with a more sophisticated pattern include poor performance (excessive repaints), buggy, hard to track down view logic (I _see_ the problem, but what is causing it?), or bloated models that are doing too much, maybe even transmitting data to the server that doesn't belong.
 
-1. A component is rendered with some data
-2. A user interacts with the component
-3. The component reacts by updating its visual state, perhaps requesting more data
+Separating state into its own entity and then maintaining that entity with one-way data binding solves each of these problems without the side effects of other solutions.  It is a pattern simple enough to implement using pure Marionette code, but this project seeks to simplify the implementation further by providing a state toolset.
 
-It is easy to start writing all the logic necessary to handle state updates in the view itself and mash view state attributes into the data model, but this quickly becomes inelegant at best and a 300+ line mess at worst.  What if the state logic could be separated and the data model left to handle strictly persisted data?  The architecture might look like this:
+`Marionette.State` allows a view to _seamlessly depend on any source of state_ while keeping state logic self-contained and eliminates the temptation to pollute core content models with view-specific state.  Best of all, `Marionette.State` does this by providing declarative and expressive tools rather than over-engineering for every use case, much like the Marionette library itself.
 
-<img class="diagram" src="https://docs.google.com/drawings/d/13_kBAF5IIl2MbJkPDo4rj_U0VG-QKRv8mWkkwYIJFPI/pub?w=960&amp;h=720" height=480>
+## One-way State Architecture
 
-1. A view only renders _dumb updates_ of data and state.
-2. The view _triggers events_ that are handled by a service (`Marionette.State`).
-3. The service reacts to both _view events_ and _application state changes_.
-4. The service triggers application events.
-5. The application reacts to application events and may trigger data _and/or_ application state updates.
-6. The view reacts to data and state changes, again performing only _dumb updates_, and the cycle repeats.
+Before launching into examples, it will be helpful to examine one-way data binding as it applies to the problem of state management.  Consider the following common scenario on the view level:
 
-This uni-directional flow of state allows each entity to do a single job--the job it does best.  The view renders data and state.  The `Marionette.State` service consolidates view events and application state changes into view state. The application performs business level actions and ultimately updates data models and application state.  `Marionette.State` is simply a tool that streamlines view state management and dependencies on application state.
+1. A view is rendered with some initial state
+2. A user interacts with the view
+3. The view reacts by updating its state
 
-## Examples
+Ideally, state logic can be separated from the view so that the view simply fires events and updates on state change.  Here's what that might look like:
+
+<img class="diagram" src="https://docs.google.com/drawings/d/1MM7iAEzqIMYNvmasTfoO2uwR3TD9oaxuVwUKDslI8mo/pub?w=916&amp;h=269" height=480>
+
+1. A view renders initial state.
+2. The view triggers events that are handled by `Marionette.State`.
+3. `Marionette.State` reacts to view events by changing its state.
+4. The view reacts to state changes, completing the cycle.
+
+The implementation is quite simple:
+
+```js
+var FooState = Marionette.State.extend({
+  defaultState: {
+    bar: true
+  },
+
+  componentEvents: {
+    'disable': 'onToggle'
+  },
+
+  onToggle: function () {
+    var bar = this.get('bar');
+    this.set('bar', !bar);
+  }
+});
+
+var FooView = Marionette.ItemView({
+  triggers: {
+    'click .js-toggle': 'toggle'
+  },
+
+  stateEvents: {
+    'change:bar': 'onChangeBar'
+  },
+
+  initialize: function () {
+    this.state = new FooState();
+
+    // State is destroyed when view is destroyed, preventing memory leaks.
+    // State change handlers are called both on 'render' and on 'change',
+    // keeping the view in sync.
+    this.state.bindComponent(this, { sync: 'render', lifetime: true });
+  },
+
+  onChangeBar: function (state, bar) {
+    if (bar) {
+      this.$el.addClass('is-bar');
+    } else {
+      this.$el.removeClass('is-bar');
+    }
+  }
+});
+```
+
+This uni-directional flow of state management allows each entity to do a single job--the job it does best.  `Marionette.State` removes all logic from the view, leaving the view to fire events and update.
+
+## View State
+
+## Application State
+
+## Sub-application State
 
 ### Toggle Button
 
