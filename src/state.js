@@ -24,12 +24,19 @@ const State = Mn.Object.extend({
   _initialState: undefined,
 
   // initialState {object} Initial state attributes
-  constructor(initialState) {
+  // options {
+  //   bindLifecycle: {Mn object} Whether to bind lifecycle to this object's `destroy` event.
+  // }
+  constructor(initialState, options={}) {
     // State model class is either passed in, on the class, or a standard Backbone model
     this.modelClass = this.modelClass || Backbone.Model;
 
     // Initialize state
     this.initState(initialState);
+
+    if (options.bindLifecycle) {
+      this.bindLifecycle(options.bindLifecycle);
+    }
 
     State.__super__.constructor.apply(this, arguments);
   },
@@ -106,12 +113,9 @@ const State = Mn.Object.extend({
   //   sync: {true|String event} If true, will sync component immediately by calling all
   //     `stateEvents` change handlers immediatel.  If a string, will call all `stateEvents`
   //     change handlers whenever the component fires the named event.
-  //   lifetime: {boolean} If true, will destroy itself on `component` destroy event.
   // }
-  bindComponent(component, options={}) {
-    var stateEvents = component.stateEvents;
+  bindComponent(component, stateEvents, options={}) {
     var sync = options.sync;
-    var lifetime = options.lifetime;
     if (this.componentEvents) {
       this.bindComponentEvents(component, this.componentEvents);
     }
@@ -123,9 +127,6 @@ const State = Mn.Object.extend({
       } else {
         Mn.bindEntityEvents(component, this, stateEvents);
       }
-    }
-    if (lifetime) {
-      this.bindLifetime(component);
     }
     return this;
   },
@@ -144,7 +145,7 @@ const State = Mn.Object.extend({
   },
 
   // When `component` fires "destroy" event, this State will also destroy.
-  bindLifetime(component) {
+  bindLifecycle(component) {
     if (!this._boundDestroy) {
       this._boundDestroy = this.destroy.bind(this);
     }
@@ -153,7 +154,7 @@ const State = Mn.Object.extend({
   },
 
   // Stop listening to `component` "destroy" event.
-  unbindLifetime(component) {
+  unbindLifecycle(component) {
     this.stopListening(component, 'destroy', this._boundDestroy);
     return this;
   },
