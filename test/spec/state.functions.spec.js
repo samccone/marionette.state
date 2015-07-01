@@ -1,6 +1,5 @@
 /*jscs:disable maximumLineLength */
 var AbstractStateful;
-var onChangeBarInline;
 
 describe('State.syncEntityEvents', () => {
   beforeEach(() => {
@@ -22,16 +21,20 @@ describe('State.syncEntityEvents', () => {
 
     var Collection = Bb.Collection;
 
-    onChangeBarInline = stub();
-
     AbstractStateful = Mn.Object.extend({
       stateEvents: {
-        'all':                   'onAll',
-        'change':                'onChange onChange2',
-        'change:foo':            'onChangeFoo',
-        'change:bar change:baz': 'onChangeBarBaz',
-        'reset':                 'onReset',
-        'change:bar':            onChangeBarInline
+        'all':                              'onAll',
+        'change':                           'onChange onChange2',
+        'change:foo':                       'onChangeFoo',
+        'reset':                            'onReset',
+        'change:foo change:bar change:baz': 'onChangeFooBarBaz'
+      },
+      modelEvents: {
+        'all':                              'onAll',
+        'change':                           'onChange onChange2',
+        'change:foo':                       'onChangeFoo',
+        'reset':                            'onReset',
+        'change:foo change:bar change:baz': 'onChangeFooBarBaz'
       },
       collectionEvents: {
         'all':        'onCollectionAll',
@@ -52,7 +55,7 @@ describe('State.syncEntityEvents', () => {
       onChange:              stub(),
       onChange2:             stub(),
       onChangeFoo:           stub(),
-      onChangeBarBaz:        stub(),
+      onChangeFooBarBaz:     stub(),
       onReset:               stub(),
       onCollectionAll:       stub(),
       onCollectionReset:     stub(),
@@ -67,13 +70,25 @@ describe('State.syncEntityEvents', () => {
 
   describe('when syncing', () => {
     var stateful;
+    var onInlineChange;
+    var onInlineReset;
 
     beforeEach(() => {
+      onInlineChange = stub();
+      onInlineReset = stub();
       var Stateful = AbstractStateful.extend({
+        inlineEvents: {
+          'change': onInlineChange,
+          'reset':  onInlineReset
+        },
         initialize() {
           Mn.State.syncEntityEvents(this, this.state, this.stateEvents);
-          Mn.State.syncEntityEvents(this, this.model, this.stateEvents);
+          Mn.State.syncEntityEvents(this, this.model, this.modelEvents);
           Mn.State.syncEntityEvents(this, this.collection, this.collectionEvents);
+
+          Mn.State.syncEntityEvents(this, this.state, this.inlineEvents);
+          Mn.State.syncEntityEvents(this, this.model, this.inlineEvents);
+          Mn.State.syncEntityEvents(this, this.collection, this.inlineEvents);
         }
       });
       stateful = new Stateful();
@@ -121,7 +136,7 @@ describe('State.syncEntityEvents', () => {
     });
 
     it('should call handler for multiple inlined events', () => {
-      expect(stateful.onChangeBarBaz.callCount).to.equal(4);
+      expect(stateful.onChangeFooBarBaz.callCount).to.equal(6);
       expect(stateful.onCollectionAllReset.callCount).to.equal(2);
     });
 
@@ -133,7 +148,15 @@ describe('State.syncEntityEvents', () => {
     });
 
     it('should call inline function handlers', () => {
-      expect(onChangeBarInline).to.have.been.calledTwice;
+      expect(onInlineChange)
+        .to.have.been.calledTwice
+        .and.to.have.been.calledWith(stateful.model)
+        .and.to.have.been.calledWith(stateful.state)
+        .and.to.always.have.been.calledOn(stateful);
+      expect(onInlineReset)
+        .to.have.been.calledOnce
+        .and.to.have.been.calledWith(stateful.collection)
+        .and.to.always.have.been.calledOn(stateful);
     });
   });
 
@@ -157,7 +180,7 @@ describe('State.syncEntityEvents', () => {
       stateful = new Stateful();
     });
 
-    it('should not sync on initialization', () => {
+    it('should not sync immediately', () => {
       expect(stateful.onChange).to.not.have.been.called;
       expect(stateful.onChangeFoo).to.not.have.been.called;
       expect(stateful.onCollectionReset).to.not.have.been.called;
@@ -179,15 +202,20 @@ describe('State.syncEntityEvents', () => {
         .and.to.have.been.calledWith(stateful.collection);
     });
 
-    it('should not sync after calling stop on the Syncing instance', () => {
+    describe('after calling stop on the Syncing instance', () => {
       stateful.stateSyncing.stop();
       stateful.modelSyncing.stop();
       stateful.collectionSyncing.stop();
-      stateful.render();
+    });
 
+    it('should not sync on target event', () => {
+      stateful.render();
       expect(stateful.onChange).to.not.have.been.called;
       expect(stateful.onChangeFoo).to.not.have.been.called;
       expect(stateful.onCollectionReset).to.not.have.been.called;
+    });
+
+    it('should not fire change handlers for future change events', () => {
     });
   });
 });

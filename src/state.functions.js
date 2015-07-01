@@ -16,13 +16,11 @@ function syncBinding(target, entity, event, handlers) {
   var modelMatch =
     (entity instanceof Bb.Model || entity instanceof State) &&
     (changeAttrMatch = event.match(modelEventMatcher));
-
   if (!collectionMatch && !modelMatch) {
     return;
   }
 
   var changeValue = changeAttrMatch && entity.get(changeAttrMatch[1]);
-
   if (_.isFunction(handlers)) {
     handlers.call(target, entity, changeValue);
   } else {
@@ -56,6 +54,7 @@ class Syncing {
   }
 
   stop() {
+    Mn.unbindEntityEvents(this.target, this.entity, this.bindings);
     this.target.off(this.event, this.handler);
     this.event = this.handler = null;
   }

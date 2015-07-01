@@ -23,45 +23,41 @@ const State = Mn.Object.extend({
   // Initial state attributes hash after 'initialState' option and defaults are applied
   _initialState: undefined,
 
-  // initialState {object} Initial state attributes
   // options {
-  //   bindLifecycle: {Mn object} Whether to bind lifecycle to this object's `destroy` event.
+  //   initialState: {object} Attributes that will override `defaultState`.  The result of
+  //     defaultState + initialState is the state reverted to by `#reset`.
+  //   component: {Mn object} Object to which to bind `componentEvents` and also lifecycle;
+  //     i.e., when `component` fires 'destroy', then destroy myself.
+  //   preventDestroy: {boolean} If true, then this will not destroy on `component` destroy.
   // }
-  constructor(initialState, options={}) {
+  constructor({ initialState, component, preventDestroy }={}) {
     // State model class is either passed in, on the class, or a standard Backbone model
     this.modelClass = this.modelClass || Backbone.Model;
 
     // Initialize state
-    this.initState(initialState);
+    this._initState(initialState);
 
-    if (options.bindLifecycle) {
-      this.bindLifecycle(options.bindLifecycle);
+    if (component) {
+      this.bindComponent(component, { preventDestroy });
     }
 
     State.__super__.constructor.apply(this, arguments);
   },
 
   // Initialize model with attrs or reset it, destructively, to conform to attrs.
-  initState(attrs, options) {
+  _initState(attrs) {
     // Set initial state.
     this._initialState = _.extend({}, this.defaultState, attrs);
 
     if (this._model) {
       // Reset existing model with initial state.
-      this.reset(null, options);
+      this.reset();
     } else {
       // Create new model with initial state.
       /* eslint-disable new-cap */
       this._model = new this.modelClass(this._initialState);
       this._proxyModelEvents(this._model);
     }
-
-    return this;
-  },
-
-  // Returns the initiate state, which is reverted to by reset()
-  getInitialState() {
-    return _.clone(this._initialState);
   },
 
   // Return the state model.
@@ -69,19 +65,25 @@ const State = Mn.Object.extend({
     return this._model;
   },
 
-  // Proxy to model set().
-  set() {
-    this._model.set.apply(this._model, arguments);
-    return this;
+  // Returns the initiate state, which is reverted to by reset()
+  getInitialState() {
+    return _.clone(this._initialState);
   },
 
   // Proxy to model get().
-  get() {
-    return this._model.get.apply(this._model, arguments);
+  get(attr) {
+    return this._model.get(attr);
+  },
+
+  // Proxy to model set().
+  set(key, val, options) {
+    this._model.set(key, val, options);
+    return this;
   },
 
   // Return state to its initial value.
   // If `attrs` is provided, they will override initial values for a "partial" reset.
+  // Initial state will remain unchanged regardless of override attributes.
   reset(attrs, options) {
     var resetAttrs = _.extend({}, this._initialState, attrs);
     this._model.set(resetAttrs, options);
@@ -107,45 +109,23 @@ const State = Mn.Object.extend({
       .value();
   },
 
-  // Bind this State's `componentEvents` to `component` and bind the component's `stateEvents`
-  // to this State.
-  // options {
-  //   sync: {true|String event} If true, will sync component immediately by calling all
-  //     `stateEvents` change handlers immediatel.  If a string, will call all `stateEvents`
-  //     change handlers whenever the component fires the named event.
-  // }
-  bindComponent(component, stateEvents, options={}) {
-    var sync = options.sync;
-    if (this.componentEvents) {
-      this.bindComponentEvents(component, this.componentEvents);
+  // Bind `componentEvents` to `component` and cascade destroy to self when component fires
+  // 'destroy'.  To prevent self-destroy behavior, pass `preventDestroy: true` as an option.
+  bindComponent(component, { preventDestroy }={}) {
+    this.bindEntityEvents(component, this.componentEvents);
+    if (!preventDestroy) {
+      this._bindLifecycle(component);
     }
-    if (stateEvents) {
-      if (sync === true) {
-        State.syncEntityEvents(component, this, stateEvents);
-      } else if (_.isString(sync)) {
-        State.syncEntityEvents(component, this, stateEvents, sync);
-      } else {
-        Mn.bindEntityEvents(component, this, stateEvents);
-      }
-    }
-    return this;
   },
 
-  // Unbinds `component` from this State's `componentEvents` and ceases component from listening
-  // to this State's state events.
+  // Unbind `componentEvents` from `component` and stop listening to component 'destroy' event.
   unbindComponent(component) {
-    var stateEvents = component.stateEvents;
-    if (this.componentEvents) {
-      this.unbindEntityEvents(component, this.componentEvents);
-    }
-    if (stateEvents) {
-      State.stopSyncingEntityEvents(component, this);
-    }
-    return this;
+    this.unbindEntityEvents(component, this.componentEvents);
+    this._unbindLifecycle(component);
   },
 
   // When `component` fires "destroy" event, this State will also destroy.
-  bindLifecycle(component) {
+  _bindLifecycle(component) {
     if (!this._boundDestroy) {
       this._boundDestroy = this.destroy.bind(this);
     }
@@ -154,20 +134,8 @@ const State = Mn.Object.extend({
   },
 
   // Stop listening to `component` "destroy" event.
-  unbindLifecycle(component) {
+  _unbindLifecycle(component) {
     this.stopListening(component, 'destroy', this._boundDestroy);
-    return this;
-  },
-
-  // Attach componentEvents to component
-  bindComponentEvents(component) {
-    this.bindEntityEvents(component, this.componentEvents);
-    return this;
-  },
-
-  // Detach componentEvents from component
-  unbindComponentEvents(component) {
-    this.unbindEntityEvents(component, this.componentEvents);
     return this;
   },
 
@@ -175,11 +143,6 @@ const State = Mn.Object.extend({
   syncEntityEvents(entity, entityEvents, event) {
     State.syncEntityEvents(this, entity, entityEvents, event);
     return this;
-  },
-
-  // Proxy to StateFunctions#stopSyncingEntityEvents.
-  stopSyncingEntityEvents(entity, entityEvents, event) {
-    State.stopSyncingEntityEvents(this, entity, entityEvents, event);
   },
 
   // Convert model events to state events

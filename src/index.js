@@ -1,5 +1,5 @@
 import State from './state';
-import {syncEntityEvents} from './state.functions';
+import { syncEntityEvents } from './state.functions';
 
 State.syncEntityEvents = syncEntityEvents;
 
